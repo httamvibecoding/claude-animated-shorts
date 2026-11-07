@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { ThreeCanvas } from "@remotion/three";
@@ -25,7 +25,7 @@ const CAMERA_KEYS: CameraKey[] = [
   { frame: 894, position: [0, 3.6, 14], lookAt: [0, 1.2, 7], fov: 34, cut: true },
   { frame: 1014, position: [0, 3, 13], lookAt: [0, 1.1, 6.8], fov: 36 },
   { frame: 1089, position: [0, 3.2, 13], lookAt: [0, 1.1, 6.8], fov: 38 },
-  { frame: 1212, position: [8, 5.8, 13], lookAt: [4.5, 3.8, 4.4], fov: 36, cut: true },
+  { frame: 1212, position: [8, 5.8, 13], lookAt: [5.7, 1.3, 6.5], fov: 36, cut: true },
   { frame: 1419, position: [0, 6.5, 9], lookAt: [0, 6, 0], fov: 34, cut: true },
   { frame: 1738, position: [0, 10, 28], lookAt: [0, 5.5, 0], fov: 50, cut: true },
 ];
@@ -61,6 +61,39 @@ const makeSkyTexture = () => {
   gradient.addColorStop(1, "#c9cdee");
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+};
+
+const makeCloudTexture = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 256;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("2D canvas is unavailable");
+
+  const puffs = [
+    [0.2, 0.67, 0.26, 0.25],
+    [0.38, 0.48, 0.24, 0.4],
+    [0.58, 0.43, 0.25, 0.44],
+    [0.77, 0.62, 0.23, 0.27],
+    [0.5, 0.73, 0.48, 0.2],
+  ];
+  for (const [x, y, rx, ry] of puffs) {
+    context.save();
+    context.translate(x * canvas.width, y * canvas.height);
+    context.scale(rx * canvas.width, ry * canvas.height);
+    const gradient = context.createRadialGradient(0, 0, 0, 0, 0, 1);
+    gradient.addColorStop(0, "rgba(255, 249, 239, 0.82)");
+    gradient.addColorStop(0.58, "rgba(255, 244, 229, 0.6)");
+    gradient.addColorStop(1, "rgba(255, 239, 220, 0)");
+    context.fillStyle = gradient;
+    context.fillRect(-1, -1, 2, 2);
+    context.restore();
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -192,28 +225,86 @@ const makePlasterTexture = () => {
   return texture;
 };
 
+type PersonMotion = {
+  start: number;
+  end: number;
+  frameDuration?: number;
+  phaseOffset?: number;
+  loop?: boolean;
+  travel?: Vector3Tuple;
+};
+
 const Person = ({
   position,
   art,
   shadow,
   size = 1,
+  motion,
 }: {
   position: Vector3Tuple;
   art: CharacterArt;
   shadow: THREE.Texture;
   size?: number;
+  motion?: PersonMotion;
 }) => {
   const height = 2.25 * size;
+  const frame = useCurrentFrame();
+  const group = useRef<THREE.Group>(null);
+  const sprite = useRef<THREE.Sprite>(null);
+  const pose = motion && frame >= motion.start && frame < motion.end
+    ? Math.floor((frame - motion.start + (motion.phaseOffset ?? 0)) / (motion.frameDuration ?? 3))
+    : -1;
+  const poseIndex = pose < 0
+    ? -1
+    : motion?.loop
+      ? pose % art.frames.length
+      : Math.min(pose, art.frames.length - 1);
+
+  useFrame(() => {
+    const idlePhase = frame * 0.035 + (motion?.phaseOffset ?? 0) * 0.3;
+    if (group.current) {
+      const progress = motion
+        ? smooth((frame - motion.start) / (motion.end - motion.start))
+        : 0;
+      const cycleLength = motion ? (motion.frameDuration ?? 3) * art.frames.length : 0;
+      const cyclePhase = motion?.loop && cycleLength > 0
+        ? ((frame - motion.start + (motion.phaseOffset ?? 0)) % cycleLength) / cycleLength
+        : 0;
+      const effort = motion?.loop && frame >= motion.start && frame < motion.end
+        ? Math.sin(cyclePhase * Math.PI * 2)
+        : 0;
+      group.current.position.set(
+        position[0] + (motion?.travel?.[0] ?? 0) * progress + effort * 0.06,
+        position[1] + (motion?.travel?.[1] ?? 0) * progress + effort * 0.04,
+        position[2] + (motion?.travel?.[2] ?? 0) * progress,
+      );
+    }
+    if (sprite.current) {
+      const material = sprite.current.material;
+      if (material instanceof THREE.SpriteMaterial) {
+        const nextTexture = poseIndex >= 0 ? art.frames[poseIndex] : art.texture;
+        if (material.map !== nextTexture) {
+          material.map = nextTexture;
+          material.needsUpdate = true;
+        }
+      }
+    }
+    if (sprite.current) {
+      sprite.current.position.y = height / 2 + Math.sin(idlePhase) * 0.018;
+      sprite.current.rotation.z = Math.sin(idlePhase * 0.7) * 0.006;
+    }
+  });
+
   return (
-    <>
-      <mesh position={[position[0], position[1] + 0.015, position[2]]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.82 * size, 0.48 * size, 1]} renderOrder={0.5}>
+    <group ref={group} position={position}>
+      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.82 * size, 0.48 * size, 1]} renderOrder={0.5}>
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial map={shadow} transparent depthWrite={false} />
       </mesh>
-      <sprite position={[position[0], position[1] + height / 2, position[2]]} scale={[height * art.aspect, height, 1]}>
+      <sprite ref={sprite} position={[0, height / 2, 0]} scale={[height * art.aspect, height, 1]}>
         <spriteMaterial map={art.texture} transparent alphaTest={0.04} depthWrite={false} />
       </sprite>
-    </>
+    </group>
   );
 };
 
@@ -276,6 +367,7 @@ const ObeliskWorld = () => {
   const cast = useMemo(createObeliskCast, []);
   const contactShadow = useMemo(makeContactShadow, []);
   const skyTexture = useMemo(makeSkyTexture, []);
+  const cloudTexture = useMemo(makeCloudTexture, []);
   const paving = useMemo(makePavingTexture, []);
   const obeliskStone = useMemo(makeStoneTexture, []);
   const churchPlaster = useMemo(makePlasterTexture, []);
@@ -310,6 +402,39 @@ const ObeliskWorld = () => {
   const skyGeometry = useMemo(() => new THREE.SphereGeometry(120, 32, 24), []);
   const churchWallGeometry = useMemo(() => new THREE.BoxGeometry(42, 9, 4), []);
   const churchOutlineGeometry = useMemo(() => new THREE.EdgesGeometry(churchWallGeometry), [churchWallGeometry]);
+  const skylineBuildingGeometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
+  const skylineRoofGeometry = useMemo(() => new THREE.ConeGeometry(1, 1, 4), []);
+  const cypressGeometry = useMemo(() => new THREE.ConeGeometry(1, 1, 8), []);
+  const windowArchGeometry = useMemo(
+    () => new THREE.SphereGeometry(0.55, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    [],
+  );
+  const cloudBanks = useMemo(
+    () => [
+      { position: [-14, 21, -48] as Vector3Tuple, scale: 2.4 },
+      { position: [0, 24, -52] as Vector3Tuple, scale: 3.1 },
+      { position: [14, 19, -46] as Vector3Tuple, scale: 2.2 },
+    ],
+    [],
+  );
+  const skyline = useMemo(
+    () => [
+      { x: -34, width: 8, height: 8.5, color: "#b9694e" },
+      { x: -25, width: 7, height: 6.5, color: "#d18b5d" },
+      { x: 25, width: 7, height: 7.5, color: "#c47451" },
+      { x: 34, width: 9, height: 9.5, color: "#a95848" },
+    ],
+    [],
+  );
+  const trees = useMemo(
+    () => [
+      { x: -13.5, z: -6, scale: 1.15 },
+      { x: 13.5, z: -6, scale: 1.3 },
+      { x: -15, z: -15, scale: 0.95 },
+      { x: 15, z: -15, scale: 1.05 },
+    ],
+    [],
+  );
   const lowerPlinthGeometry = useMemo(() => new THREE.BoxGeometry(4.8, 0.8, 4.8), []);
   const lowerPlinthOutline = useMemo(() => new THREE.EdgesGeometry(lowerPlinthGeometry), [lowerPlinthGeometry]);
   const upperPlinthGeometry = useMemo(() => new THREE.BoxGeometry(3.5, 0.5, 3.5), []);
@@ -346,9 +471,50 @@ const ObeliskWorld = () => {
       <mesh geometry={skyGeometry} renderOrder={-1}>
         <meshBasicMaterial map={skyTexture} side={THREE.BackSide} depthWrite={false} fog={false} toneMapped={false} />
       </mesh>
+      {cloudBanks.map((cloud, index) => {
+        const drift = Math.sin(frame * 0.002 + index * 2.1) * 0.7;
+        return (
+          <sprite
+            key={`cloud-${index}`}
+            position={[cloud.position[0] + drift, cloud.position[1], cloud.position[2]]}
+            scale={[cloud.scale * 3.2, cloud.scale * 1.55, 1]}
+          >
+            <spriteMaterial map={cloudTexture} transparent depthWrite={false} fog={false} />
+          </sprite>
+        );
+      })}
       <ambientLight intensity={1.1} color="#dcecff" />
       <directionalLight position={[9, 16, 11]} intensity={2.2} color="#fff3e0" castShadow />
       <directionalLight position={[-9, 9, -8]} intensity={0.85} color="#87a9e3" />
+
+      {skyline.map((building, index) => (
+        <group key={`skyline-${index}`} position={[building.x, 0, -37]}>
+          <mesh geometry={skylineBuildingGeometry} position={[0, building.height / 2, 0]} scale={[building.width, building.height, 7]} castShadow>
+            <meshStandardMaterial color={building.color} roughness={0.95} />
+          </mesh>
+          <mesh geometry={skylineRoofGeometry} position={[0, building.height + 0.7, 0]} rotation={[0, Math.PI / 4, 0]} scale={[building.width * 0.72, 1.4, 6]} castShadow>
+            <meshStandardMaterial color="#75483f" roughness={0.92} />
+          </mesh>
+          {[-1.8, 0, 1.8].map((window, windowIndex) => (
+            <mesh key={`skyline-window-${windowIndex}`} position={[window, building.height * 0.48, 3.56]}>
+              <boxGeometry args={[0.72, 1.1, 0.1]} />
+              <meshStandardMaterial color="#526986" roughness={0.9} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+
+      {trees.map((tree, index) => (
+        <group key={`cypress-${index}`} position={[tree.x, 0, tree.z]} scale={tree.scale}>
+          <mesh position={[0, 1.15, 0]} castShadow>
+            <cylinderGeometry args={[0.18, 0.24, 2.3, 8]} />
+            <meshStandardMaterial color="#70503b" roughness={0.95} />
+          </mesh>
+          <mesh geometry={cypressGeometry} position={[0, 4.8, 0]} scale={[0.74, 5.6, 0.74]} castShadow>
+            <meshStandardMaterial color="#44684f" roughness={0.94} />
+          </mesh>
+        </group>
+      ))}
 
       <mesh geometry={pavingGeometry} position={[0, -0.25, 0]} receiveShadow>
         <meshStandardMaterial map={paving} color="#fff4e5" roughness={1} />
@@ -363,11 +529,36 @@ const ObeliskWorld = () => {
           <lineBasicMaterial color="#44303a" transparent opacity={0.78} />
         </lineSegments>
         {Array.from({ length: 10 }, (_, index) => (
-          <mesh key={`window-${index}`} position={[(index - 4.5) * 3.9, 4.8, 1.15]}>
-            <boxGeometry args={[1.1, 1.7, 0.12]} />
-            <meshStandardMaterial color="#41658d" roughness={0.85} />
-          </mesh>
+          <group key={`window-${index}`} position={[(index - 4.5) * 3.9, 4.8, 1.15]}>
+            <mesh>
+              <boxGeometry args={[1.1, 1.7, 0.12]} />
+              <meshStandardMaterial color="#344e70" roughness={0.85} />
+            </mesh>
+            <mesh geometry={windowArchGeometry} position={[0, 0.85, 0.01]}>
+              <meshStandardMaterial color="#344e70" roughness={0.85} />
+            </mesh>
+            <mesh position={[-0.67, 0, -0.06]}>
+              <boxGeometry args={[0.12, 1.95, 0.2]} />
+              <meshStandardMaterial color="#e5c28f" roughness={0.9} />
+            </mesh>
+            <mesh position={[0.67, 0, -0.06]}>
+              <boxGeometry args={[0.12, 1.95, 0.2]} />
+              <meshStandardMaterial color="#e5c28f" roughness={0.9} />
+            </mesh>
+            <mesh position={[0, -0.92, 0]}>
+              <boxGeometry args={[1.45, 0.16, 0.3]} />
+              <meshStandardMaterial color="#d49d69" roughness={0.9} />
+            </mesh>
+          </group>
         ))}
+        <mesh position={[0, 7.3, 1.2]}>
+          <boxGeometry args={[43, 0.22, 0.28]} />
+          <meshStandardMaterial color="#f3d9ae" roughness={0.9} />
+        </mesh>
+        <mesh position={[0, 1.1, 1.2]}>
+          <boxGeometry args={[43, 0.34, 0.28]} />
+          <meshStandardMaterial color="#b98559" roughness={0.9} />
+        </mesh>
         <mesh position={[0, 9.1, 0.9]}>
           <boxGeometry args={[44, 0.45, 4.2]} />
           <meshStandardMaterial color="#d49d69" />
@@ -442,13 +633,20 @@ const ObeliskWorld = () => {
       })}
 
       {crew.map((person, index) => (
-        <Person key={`crew-${index}`} position={person.position} art={cast.workers[person.variant]} shadow={contactShadow} size={person.size} />
+        <Person
+          key={`crew-${index}`}
+          position={person.position}
+          art={cast.workers[person.variant]}
+          shadow={contactShadow}
+          size={person.size}
+          motion={{ start: 320, end: 1212, phaseOffset: index * 3, loop: true, frameDuration: 3 }}
+        />
       ))}
-      <Person position={[0, 0.1, 7]} art={cast.sailor} shadow={contactShadow} size={1.12} />
-      <Person position={[-0.95, 0.1, 6.2]} art={cast.guards[0]} shadow={contactShadow} size={1.04} />
-      <Person position={[0.95, 0.1, 6.2]} art={cast.guards[1]} shadow={contactShadow} size={1.04} />
+      <Person position={[0, 0.1, 7]} art={cast.sailor} shadow={contactShadow} size={1.12} motion={{ start: 894, end: 1212, frameDuration: 3 }} />
+      <Person position={[-0.95, 0.1, 6.2]} art={cast.guards[0]} shadow={contactShadow} size={1.04} motion={{ start: 1014, end: 1089, phaseOffset: 3, frameDuration: 3, travel: [0.2, 0, 0.35] }} />
+      <Person position={[0.95, 0.1, 6.2]} art={cast.guards[1]} shadow={contactShadow} size={1.04} motion={{ start: 1014, end: 1089, phaseOffset: 9, frameDuration: 3, travel: [-0.2, 0, 0.35] }} />
       <Person position={[-1.2, 0.1, -12]} art={cast.cardinal} shadow={contactShadow} size={1.16} />
-      <Person position={[5, 0.1, 4.5]} art={cast.architect} shadow={contactShadow} size={1.06} />
+      <Person position={[5.7, 0.1, 6.5]} art={cast.architect} shadow={contactShadow} size={1.06} motion={{ start: 1212, end: 1419, frameDuration: 4 }} />
 
       {Array.from({ length: 7 }, (_, index) => {
         const offset = (index - 3) * 0.52;

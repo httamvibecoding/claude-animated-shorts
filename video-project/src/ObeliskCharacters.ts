@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { bodyFront, Expr, Outfit, Pen } from "../../templates/bridge/toon";
+import { bodyFront, Expr, FrontOpts, Outfit, Pen } from "../../templates/bridge/toon";
 
 export type CharacterArt = {
   texture: THREE.CanvasTexture;
+  frames: THREE.CanvasTexture[];
   aspect: number;
 };
 
@@ -68,64 +69,99 @@ const architect: Outfit = {
   moustache: "#554034",
 };
 
-const draw = (outfit: Outfit, expression: Expr, seed: number, wave?: number): CharacterArt => {
-  const source = document.createElement("canvas");
-  source.width = 600;
-  source.height = 1000;
-  const context = source.getContext("2d");
-  if (!context) throw new Error("2D canvas is unavailable");
-
-  bodyFront(new Pen(context), outfit, {
-    mode: "stand",
-    expr: expression,
-    seed,
-    light: -Math.PI / 2,
-    wave,
-  });
-
-  const pixels = context.getImageData(0, 0, source.width, source.height).data;
-  let left = source.width;
-  let top = source.height;
+const draw = (outfit: Outfit, expression: Expr, seed: number, poses: FrontOpts[]): CharacterArt => {
+  const sourceFrames: HTMLCanvasElement[] = [];
+  let left = 600;
+  let top = 1000;
   let right = 0;
   let bottom = 0;
-  for (let y = 0; y < source.height; y += 1) {
-    for (let x = 0; x < source.width; x += 1) {
-      if (pixels[(y * source.width + x) * 4 + 3] < 8) continue;
-      left = Math.min(left, x);
-      top = Math.min(top, y);
-      right = Math.max(right, x);
-      bottom = Math.max(bottom, y);
+
+  for (const pose of poses) {
+    const source = document.createElement("canvas");
+    source.width = 600;
+    source.height = 1000;
+    const context = source.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("2D canvas is unavailable");
+    bodyFront(new Pen(context), outfit, {
+      mode: "stand",
+      expr: expression,
+      seed,
+      light: -Math.PI / 2,
+      ...pose,
+    });
+
+    const pixels = context.getImageData(0, 0, source.width, source.height).data;
+    let frameLeft = source.width;
+    let frameTop = source.height;
+    let frameRight = 0;
+    let frameBottom = 0;
+    for (let y = 0; y < source.height; y += 3) {
+      for (let x = 0; x < source.width; x += 3) {
+        if (pixels[(y * source.width + x) * 4 + 3] < 8) continue;
+        frameLeft = Math.min(frameLeft, x);
+        frameTop = Math.min(frameTop, y);
+        frameRight = Math.max(frameRight, x);
+        frameBottom = Math.max(frameBottom, y);
+      }
     }
-  }
-  if (right <= left || bottom <= top) {
-    throw new Error("Character drawing is empty");
+    if (frameRight <= frameLeft || frameBottom <= frameTop) {
+      throw new Error("Character drawing is empty");
+    }
+    left = Math.min(left, frameLeft);
+    top = Math.min(top, frameTop);
+    right = Math.max(right, frameRight);
+    bottom = Math.max(bottom, frameBottom);
+    sourceFrames.push(source);
   }
 
   const padding = 12;
   left = Math.max(0, left - padding);
   top = Math.max(0, top - padding);
-  right = Math.min(source.width, right + padding + 1);
-  bottom = Math.min(source.height, bottom + padding + 1);
+  right = Math.min(600, right + padding + 1);
+  bottom = Math.min(1000, bottom + padding + 1);
   const width = right - left;
   const height = bottom - top;
-  const cropped = document.createElement("canvas");
-  cropped.width = width;
-  cropped.height = height;
-  const croppedContext = cropped.getContext("2d");
-  if (!croppedContext) throw new Error("2D canvas is unavailable");
-  croppedContext.drawImage(source, left, top, width, height, 0, 0, width, height);
+  const frames = sourceFrames.map((source) => {
+    const cropped = document.createElement("canvas");
+    cropped.width = width;
+    cropped.height = height;
+    const croppedContext = cropped.getContext("2d");
+    if (!croppedContext) throw new Error("2D canvas is unavailable");
+    croppedContext.drawImage(source, left, top, width, height, 0, 0, width, height);
 
-  const texture = new THREE.CanvasTexture(cropped);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  texture.needsUpdate = true;
-  return { texture, aspect: width / height };
+    const texture = new THREE.CanvasTexture(cropped);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    texture.needsUpdate = true;
+    return texture;
+  });
+  return { texture: frames[0], frames: frames.slice(1), aspect: width / height };
 };
 
+const haulPoses = Array.from({ length: 12 }, (_, index): FrontOpts => ({
+  mode: "march",
+  phase: index / 12,
+  lift: 95,
+  tilt: Math.sin((index / 12) * Math.PI * 2) * 4,
+  headTilt: Math.cos((index / 12) * Math.PI * 2) * 3,
+}));
+
+const gesturePoses = Array.from({ length: 8 }, (_, index): FrontOpts => ({
+  wave: 0.1 + (index / 7) * 0.7,
+  headTilt: index < 4 ? -2 : 1,
+}));
+
 export const createObeliskCast = () => ({
-  workers: workers.map((outfit, index) => draw(outfit, index % 3 === 0 ? "stern" : "neutral", index + 1)),
-  sailor: draw(sailor, "shock", 12, 0.8),
-  guards: guards.map((outfit, index) => draw(outfit, "stern", index + 20)),
-  cardinal: draw(cardinal, "stern", 32),
-  architect: draw(architect, "nervous", 33),
+  workers: workers.map((outfit, index) =>
+    draw(outfit, index % 3 === 0 ? "stern" : "neutral", index + 1, [
+      { mode: "stand" },
+      ...haulPoses,
+    ]),
+  ),
+  sailor: draw(sailor, "shock", 12, [{}, ...gesturePoses]),
+  guards: guards.map((outfit, index) =>
+    draw(outfit, "stern", index + 20, [{}, ...haulPoses]),
+  ),
+  cardinal: draw(cardinal, "stern", 32, [{}, ...gesturePoses]),
+  architect: draw(architect, "nervous", 33, [{}, ...gesturePoses]),
 });
