@@ -17,12 +17,90 @@ import { FPS, D0, SHOTS, PARK, ANCHOR, SNAP, camAt, bridgeState, deckY, dropW, s
 const KENNEY = ["tree_oak", "tree_default", "tree_detailed", "tree_fat", "tree_cone", "tree-high-round", "tree", "plant_bushLarge", "plant_bushDetailed",
   "plant_bush", "hedge", "flower_redA", "flower_yellowA", "flower_purpleA", "grass_large", "grass", "lily_large", "lantern", "cart", "stall-red",
   "stall-green", "stall-bench", "banner-red", "banner-green", "windmill", "canoe"];
+
+const fallbackAsset = (name: string): THREE.Object3D => {
+  const root = new THREE.Group();
+  const mat = (color: string, emissive = "#000000") => new THREE.MeshLambertMaterial({ color, emissive });
+  const addMesh = (geometry: THREE.BufferGeometry | THREE.Geometry, material: THREE.Material, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    mesh.rotation.y = ry;
+    root.add(mesh);
+  };
+
+  if (/^tree/.test(name) || name === "tree") {
+    addMesh(new THREE.CylinderGeometry(0.22, 0.42, 2.2, 10), mat("#8a5a3c"), 0, 1.1, 0);
+    ["#4ea347", "#67b85d", "#5cae4d"].forEach((color, i) => {
+      const scale = [1.8, 1.5, 1.25][i] ?? 1.1;
+      addMesh(new THREE.SphereGeometry(1.2, 16, 12), mat(color), 0, 2.4 + i * 0.55, 0, scale, 0.9 + i * 0.1, scale, 0.4 * i);
+    });
+    return root;
+  }
+
+  if (/bush|hedge|grass/.test(name)) {
+    const color = name.includes("grass") ? "#76b84f" : "#5d9a46";
+    const count = name === "hedge" ? 4 : 3;
+    for (let i = 0; i < count; i++) {
+      const x = (i - (count - 1) / 2) * 0.5;
+      addMesh(new THREE.SphereGeometry(0.7 + (i % 2) * 0.15, 16, 12), mat(color), x, 0.45, 0, 1.1, 0.9, 1.1, 0.6 * i);
+    }
+    return root;
+  }
+
+  if (/flower/.test(name) || name === "lily_large") {
+    addMesh(new THREE.CylinderGeometry(0.05, 0.07, 0.8, 8), mat("#4d8f4d"), 0, 0.4, 0);
+    addMesh(new THREE.SphereGeometry(0.18, 10, 10), mat(name.includes("red") ? "#d95d42" : name.includes("yellow") ? "#d7b64a" : "#a66fca"), 0, 0.9, 0);
+    return root;
+  }
+
+  if (name === "lantern") {
+    addMesh(new THREE.CylinderGeometry(0.12, 0.12, 1.4, 8), mat("#6b4c3b"), 0, 0.7, 0);
+    addMesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), mat("#f7d87a"), 0, 1.5, 0);
+    return root;
+  }
+
+  if (name === "cart") {
+    addMesh(new THREE.BoxGeometry(1.4, 0.45, 1), mat("#a7683b"), 0, 0.55, 0);
+    addMesh(new THREE.BoxGeometry(1.1, 0.7, 0.9), mat("#b97a44"), 0, 1.05, 0);
+    for (const x of [-0.7, 0.7]) for (const z of [-0.45, 0.45]) addMesh(new THREE.CylinderGeometry(0.2, 0.2, 0.18, 12), mat("#3a2c2a"), x, 0.18, z);
+    return root;
+  }
+
+  if (/stall/.test(name)) {
+    addMesh(new THREE.BoxGeometry(1.8, 0.28, 1.2), mat(name.includes("red") ? "#b8573d" : name.includes("green") ? "#4d8c5e" : "#a67e5a"), 0, 1.1, 0);
+    addMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), mat("#5a3c2e"), -0.7, 0.55, -0.45);
+    addMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), mat("#5a3c2e"), 0.7, 0.55, -0.45);
+    addMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), mat("#5a3c2e"), -0.7, 0.55, 0.45);
+    addMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), mat("#5a3c2e"), 0.7, 0.55, 0.45);
+    return root;
+  }
+
+  if (/banner/.test(name)) {
+    addMesh(new THREE.PlaneGeometry(1.6, 2.2), mat(name.includes("red") ? "#b75441" : "#5d8d61"), 0, 1.1, 0, 1, 1, 1);
+    return root;
+  }
+
+  if (name === "windmill") {
+    addMesh(new THREE.CylinderGeometry(0.3, 0.4, 2.2, 12), mat("#91887b"), 0, 1.1, 0);
+    addMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.8, 8), mat("#d0b077"), 0, 2.7, 0);
+    for (let i = 0; i < 4; i++) addMesh(new THREE.BoxGeometry(1.7, 0.08, 0.25), mat("#d9d2bf"), 0, 2.8, 0, 1, 1, 1, (Math.PI / 2) * i);
+    return root;
+  }
+
+  if (name === "canoe") {
+    addMesh(new THREE.CylinderGeometry(0.4, 0.75, 2.6, 10, 1, true), mat("#918770"), 0, 0.35, 0, 1, 1, 1, Math.PI / 2);
+    return root;
+  }
+
+  addMesh(new THREE.BoxGeometry(1, 1, 1), mat("#8e9a8a"), 0, 0.5, 0);
+  return root;
+};
+
 let kitP: Promise<Kit> | null = null;
 export const loadKit = () => {
   if (!kitP) {
-    const loader = new GLTFLoader();
-    kitP = Promise.all(KENNEY.map((n) => loader.loadAsync(staticFile(`bridge/kenney/${n}.glb`)).then((g) => [n, g.scene] as const).catch(() => [n, null] as const)))
-      .then((list) => Object.fromEntries(list.filter((e) => e[1]).map(([n, s]) => [n, s!])) as Kit);
+    kitP = Promise.resolve(Object.fromEntries(KENNEY.map((n) => [n, fallbackAsset(n)])) as Kit);
   }
   return kitP;
 };

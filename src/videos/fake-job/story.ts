@@ -233,8 +233,10 @@ export const CAMS: Record<number, Key[]> = {
   ],
   9: [
     { f: 1040, dur: 80, s: S9a }, // glide 80 f
-    { f: 1120, dur: 30, s: S10a }, // glide 30 f
-    { f: 1150, dur: 20, s: S10b }, // silence 20 f (rate 0.0005)
+  ],
+  10: [
+    { f: 1170, dur: 30, s: S10a }, // glide 30 f
+    { f: 1200, dur: 20, s: S10b }, // silence 20 f (rate 0.0005)
   ],
   11: [
     { f: 1300, dur: 46, s: S11a }, // glide 46 f

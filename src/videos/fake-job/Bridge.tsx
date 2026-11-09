@@ -1,1 +1,117 @@
-// \"The Fake Job Interview\": our new short in the flat-characters-in-a-3D-toon-world style.\n// One three.js world (world.ts) posed per frame from the story timeline (story.ts). Post chain (look-match pass):\n//   InkPass (world ink lines, own pass) -> lens blur pre + main (thin-lens DOF per shot from dofAt) ->\n//   [bloom (emissive only) + NEUTRAL tone mapping + colour grade] (one merged EffectPass), MSAA 4.\n// Ink runs before the DOF so lines blur with what they belong to; bloom after the DOF so glows defocus with their\n// source; the grade is display-referred, so it comes after tone mapping. Every pixel-sized parameter is specified at\n// 1080x1920 and scaled with the output size, so stills at --scale 0.5 and the 1440x2560 final match.\n// Place changes crossfade by stacking a second canvas for the fade frames; the hook ends on a 4-frame white flash.\nimport React, { useEffect, useMemo, useState } from \"react\";\nimport * as THREE from \"three\";\nimport { AbsoluteFill, continueRender, delayRender, getInputProps, useCurrentFrame } from \"remotion\";\nimport { ThreeCanvas } from \"@remotion/three\";\nimport { useThree } from \"@react-three/fiber\";\nimport { EffectComposer } from \"@react-three/postprocessing\";\nimport { BlendFunction, BloomEffect, ToneMappingEffect, ToneMappingMode } from \"postprocessing\";\nimport { World, loadKit } from \"./world\";\nimport { InkPass, noInkFallback } from \"./ink\";\nimport { LensBlur, GrainEffect } from \"./lensblur\";\nimport { GradeEffect, GRADES, GRADE_STRENGTH, gradeFor } from \"./grade\";\nimport { Kit } from \"./build\";\nimport { TOTAL, FLASH_AT, SHOTS, layersAt, dofAt } from \"./story\";\n\nexport const FAKE_JOB_FRAMES = TOTAL;\n\n/** A/B switches for test stills only (Remotion inputProps `{ post: { ink: false, ... } }`); everything is on by default. */\ntype PostToggles = { ink: boolean; lens: boolean; pre: boolean; bloom: boolean; grade: boolean; grain: boolean };\nconst toggles = (): PostToggles => ({ ink: true, lens: true, pre: true, bloom: true, grade: true, grain: false, ...((getInputProps() as { post?: Partial<PostToggles> }).post ?? {}) });\n\n/** Bloom for emissive sources only (depth.md 6.4). Its MIP chain always starts at 540x960 (half of 1080x1920),\n *  whatever the output size, so the glow keeps the same size relative to the frame (e-fold ~30 px at 1080p,\n *  ~1.5 % of the frame height) at 540, 1080 and 1440 widths. ADD blend: HDR-safe (SCREEN darkens values > 1). */\nconst makeBloom = () => {\n  const b = new BloomEffect({ blendFunction: BlendFunction.ADD, intensity: 0.5, luminanceThreshold: 1.0, luminanceSmoothing: 0.2, mipmapBlur: true, levels: 6, radius: 0.6 });\n  const mip = b.mipmapBlurPass;\n  const setSize = mip.setSize.bind(mip);\n  mip.setSize = (w: number, h: number) => setSize(Math.round((1920 * w) / Math.max(h, 1)), 1920);\n  return b;\n};\n\nconst fwd = new THREE.Vector3(), fpt = new THREE.Vector3();\n\nconst useKit = () => {\n  const [kit, setKit] = useState<Kit | null>(null);\n  const [handle] = useState(() => delayRender(\"fake job kit\"));\n  useEffect(() => { loadKit().then((k) => { setKit(k); continueRender(handle); }); }, [handle]);\n  return kit;\n};\n\nconst Inner: React.FC<{ id: number; kit: Kit }> = ({ id, kit }) => {\n  const f = useCurrentFrame();\n  const { camera, scene } = useThree();\n  const world = useMemo(() => new World(kit), [kit]);\n  const target = useMemo(() => new THREE.Vector3(), []);\n  const on = useMemo(toggles, []);\n  const fx = useMemo(() => ({\n    ink: new InkPass(scene, camera as THREE.PerspectiveCamera),\n    lens: new LensBlur({ maxCoC: 24, nearScale: 1.2 }),\n    bloom: makeBloom(),\n    tone: new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL }),\n    grade: new GradeEffect(GRADES.day, GRADE_STRENGTH.day),\n    grain: new GrainEffect({ amount: 0.025, cellPx: 1.5 }), // film grain, OFF by default (inputProps post.grain): the reference measures no grain and it quadruples the file size\n  }), [camera, scene]);\n  useEffect(() => () => fx.ink.dispose(), [fx]);\n  const post = useMemo(() => (\n    <EffectComposer multisampling={4}>\n      {on.ink ? <primitive object={fx.ink} dispose={null} /> : null}\n      {on.lens && on.pre ? <primitive object={fx.lens.pre} dispose={null} /> : null}\n      {on.lens ? <primitive object={fx.lens.main} dispose={null} /> : null}\n      {on.bloom ? <primitive object={fx.bloom} dispose={null} /> : null}\n      <primitive object={fx.tone} dispose={null} />\n      {on.grade ? <primitive object={fx.grade} dispose={null} /> : null}\n      {on.grain ? <primitive object={fx.grain} dispose={null} /> : null}\n    </EffectComposer>\n  ), [fx, on]);\n  const cam = camera as THREE.PerspectiveCamera;\n  target.copy(world.update(id, f, cam, scene));\n  noInkFallback(world.root);\n  // thin-lens focus: distance along the view axis to the shot's focus point (default: the camera's look target)\n  const d = dofAt(f);\n  cam.getWorldDirection(fwd);\n  if (d.focus) fpt.set(...d.focus(f)); else fpt.copy(target);\n  fx.lens.focus = Math.max(0.3, fpt.sub(cam.position).dot(fwd));\n  fx.lens.cInf = d.cInf;\n  gradeFor(fx.grade, SHOTS[id - 1].light);\n  fx.grain.seed = f; // deterministic per frame\n  return (\n    <>\n      <primitive object={world.root} dispose={null} />\n      {post}\n    </>\n  );\n};\n\n/** test stills only: inputProps `{ post: { dpr: 0.5 } }` forces the WebGL buffer size (R3F clamps dpr to >= 1 by default) */\nconst dprOverride = () => (getInputProps() as { post?: { dpr?: number } }).post?.dpr;\nconst ShotView: React.FC<{ id: number; kit: Kit; alpha: number }> = ({ id, kit, alpha }) => (\n  <AbsoluteFill style={{ opacity: alpha }}>\n    <ThreeCanvas width={1080} height={1920} {...(dprOverride() ? { dpr: dprOverride() } : {})} shadows gl={{ antialias: false, stencil: false, powerPreference: \"high-performance\", toneMappingExposure: 1.0 }}\n      camera={{ fov: 40, near: 0.2, far: 1500 }}>\n      <Inner id={id} kit={kit} />\n    </ThreeCanvas>\n  </AbsoluteFill>\n);\n\nexport const FakeJobShort: React.FC = () => {\n  const f = useCurrentFrame();\n  const kit = useKit();\n  if (!kit) return null;\n  const flash = f >= FLASH_AT && f < FLASH_AT + 4 ? [1, 0.75, 0.45, 0.2][f - FLASH_AT] : 0;\n  return (\n    <AbsoluteFill style={{ background: \"#cfe3f2\" }}>\n      {layersAt(f).map((l, i) => <ShotView key={i ? \"over\" : \"base\"} id={l.id} kit={kit} alpha={l.alpha} />)}\n      {flash > 0 && <AbsoluteFill style={{ background: \"#ffffff\", opacity: flash }} />}\n    </AbsoluteFill>\n  );\n};\n
+// "The Fake Job Interview": our new short in the flat-characters-in-a-3D-toon-world style.
+// One three.js world (world.ts) posed per frame from the story timeline (story.ts). Post chain (look-match pass):
+//   InkPass (world ink lines, own pass) -> lens blur pre + main (thin-lens DOF per shot from dofAt) ->
+//   [bloom (emissive only) + NEUTRAL tone mapping + colour grade] (one merged EffectPass), MSAA 4.
+// Ink runs before the DOF so lines blur with what they belong to; bloom after the DOF so glows defocus with their
+// source; the grade is display-referred, so it comes after tone mapping. Every pixel-sized parameter is specified at
+// 1080x1920 and scaled with the output size, so stills at --scale 0.5 and the 1440x2560 final match.
+// Place changes crossfade by stacking a second canvas for the fade frames; the hook ends on a 4-frame white flash.
+import React, { useEffect, useMemo, useState } from "react";
+import * as THREE from "three";
+import { AbsoluteFill, continueRender, delayRender, getInputProps, useCurrentFrame } from "remotion";
+import { ThreeCanvas } from "@remotion/three";
+import { useThree } from "@react-three/fiber";
+import { EffectComposer } from "@react-three/postprocessing";
+import { BlendFunction, BloomEffect, ToneMappingEffect, ToneMappingMode } from "postprocessing";
+import { World, loadKit } from "./world";
+import { InkPass, noInkFallback } from "./ink";
+import { LensBlur, GrainEffect } from "./lensblur";
+import { GradeEffect, GRADES, GRADE_STRENGTH, gradeFor } from "./grade";
+import { Kit } from "./build";
+import { TOTAL, SHOTS, layersAt, dofAt } from "./story";
+
+export const FAKE_JOB_FRAMES = TOTAL;
+const FLASH_AT = TOTAL - 4;
+
+/** A/B switches for test stills only (Remotion inputProps `{ post: { ink: false, ... } }`); everything is on by default. */
+type PostToggles = { ink: boolean; lens: boolean; pre: boolean; bloom: boolean; grade: boolean; grain: boolean };
+const toggles = (): PostToggles => ({ ink: true, lens: true, pre: true, bloom: true, grade: true, grain: false, ...((getInputProps() as { post?: Partial<PostToggles> }).post ?? {}) });
+
+/** Bloom for emissive sources only (depth.md 6.4). Its MIP chain always starts at 540x960 (half of 1080x1920),
+ *  whatever the output size, so the glow keeps the same size relative to the frame (e-fold ~30 px at 1080p,
+ *  ~1.5 % of the frame height) at 540, 1080 and 1440 widths. ADD blend: HDR-safe (SCREEN darkens values > 1). */
+const makeBloom = () => {
+  const b = new BloomEffect({ blendFunction: BlendFunction.ADD, intensity: 0.5, luminanceThreshold: 1.0, luminanceSmoothing: 0.2, mipmapBlur: true, levels: 6, radius: 0.6 });
+  const mip = b.mipmapBlurPass;
+  const setSize = mip.setSize.bind(mip);
+  mip.setSize = (w: number, h: number) => setSize(Math.round((1920 * w) / Math.max(h, 1)), 1920);
+  return b;
+};
+
+const fwd = new THREE.Vector3(), fpt = new THREE.Vector3();
+
+const useKit = () => {
+  const [kit, setKit] = useState<Kit | null>(null);
+  const [handle] = useState(() => delayRender("fake job kit"));
+  useEffect(() => { loadKit().then((k) => { setKit(k); continueRender(handle); }); }, [handle]);
+  return kit;
+};
+
+const Inner: React.FC<{ id: number; kit: Kit }> = ({ id, kit }) => {
+  const f = useCurrentFrame();
+  const { camera, scene } = useThree();
+  const world = useMemo(() => new World(kit), [kit]);
+  const target = useMemo(() => new THREE.Vector3(), []);
+  const on = useMemo(toggles, []);
+  const fx = useMemo(() => ({
+    ink: new InkPass(scene, camera as THREE.PerspectiveCamera),
+    lens: new LensBlur({ maxCoC: 24, nearScale: 1.2 }),
+    bloom: makeBloom(),
+    tone: new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL }),
+    grade: new GradeEffect(GRADES.day, GRADE_STRENGTH.day),
+    grain: new GrainEffect({ amount: 0.025, cellPx: 1.5 }), // film grain, OFF by default (inputProps post.grain): the reference measures no grain and it quadruples the file size
+  }), [camera, scene]);
+  useEffect(() => () => fx.ink.dispose(), [fx]);
+  const post = useMemo(() => (
+    <EffectComposer multisampling={4}>
+      {on.ink ? <primitive object={fx.ink} dispose={null} /> : null}
+      {on.lens && on.pre ? <primitive object={fx.lens.pre} dispose={null} /> : null}
+      {on.lens ? <primitive object={fx.lens.main} dispose={null} /> : null}
+      {on.bloom ? <primitive object={fx.bloom} dispose={null} /> : null}
+      <primitive object={fx.tone} dispose={null} />
+      {on.grade ? <primitive object={fx.grade} dispose={null} /> : null}
+      {on.grain ? <primitive object={fx.grain} dispose={null} /> : null}
+    </EffectComposer>
+  ), [fx, on]);
+  const cam = camera as THREE.PerspectiveCamera;
+  target.copy(world.update(id, f, cam, scene));
+  noInkFallback(world.root);
+  // thin-lens focus: distance along the view axis to the shot's focus point (default: the camera's look target)
+  const d = dofAt(f);
+  cam.getWorldDirection(fwd);
+  if (d.focus) fpt.set(...d.focus(f)); else fpt.copy(target);
+  fx.lens.focus = Math.max(0.3, fpt.sub(cam.position).dot(fwd));
+  fx.lens.cInf = d.cInf;
+  gradeFor(fx.grade, SHOTS[id - 1].light);
+  fx.grain.seed = f; // deterministic per frame
+  return (
+    <>
+      <primitive object={world.root} dispose={null} />
+      {post}
+    </>
+  );
+};
+
+/** test stills only: inputProps `{ post: { dpr: 0.5 } }` forces the WebGL buffer size (R3F clamps dpr to >= 1 by default) */
+const dprOverride = () => (getInputProps() as { post?: { dpr?: number } }).post?.dpr;
+const ShotView: React.FC<{ id: number; kit: Kit; alpha: number }> = ({ id, kit, alpha }) => (
+  <AbsoluteFill style={{ opacity: alpha }}>
+    <ThreeCanvas width={1080} height={1920} {...(dprOverride() ? { dpr: dprOverride() } : {})} shadows gl={{ antialias: false, stencil: false, powerPreference: "high-performance", toneMappingExposure: 1.0 }}
+      camera={{ fov: 40, near: 0.2, far: 1500 }}>
+      <Inner id={id} kit={kit} />
+    </ThreeCanvas>
+  </AbsoluteFill>
+);
+
+export const FakeJobShort: React.FC = () => {
+  const f = useCurrentFrame();
+  const kit = useKit();
+  if (!kit) return null;
+  const flash = f >= FLASH_AT && f < FLASH_AT + 4 ? [1, 0.75, 0.45, 0.2][f - FLASH_AT] : 0;
+  return (
+    <AbsoluteFill style={{ background: "#cfe3f2" }}>
+      {layersAt(f).map((l, i) => <ShotView key={i ? "over" : "base"} id={l.id} kit={kit} alpha={l.alpha} />)}
+      {flash > 0 && <AbsoluteFill style={{ background: "#ffffff", opacity: flash }} />}
+    </AbsoluteFill>
+  );
+};

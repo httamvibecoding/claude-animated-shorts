@@ -9,20 +9,21 @@
     "stills": "node templates/scripts/bridge-stills.mjs"
   },
   "dependencies": {
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.0",
+    "@react-three/postprocessing": "^2.15.0",
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/three": "^4.0.0",
+    "postprocessing": "^6.33.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "three": "^0.160.0",
-    "@react-three/fiber": "^8.15.0",
-    "@react-three/drei": "^9.88.0",
-    "@remotion/three": "^4.0.0",
     "remotion": "^4.0.0",
-    "@remotion/bundler": "^4.0.0",
-    "@react-three/postprocessing": "^2.15.0",
-    "postprocessing": "^6.33.0"
+    "three": "^0.179.1"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@remotion/cli": "^4.0.541",
     "@types/react": "^18.2.0",
-    "@types/three": "^0.160.0"
+    "@types/three": "^0.179.0",
+    "typescript": "^5.0.0"
   }
 }
