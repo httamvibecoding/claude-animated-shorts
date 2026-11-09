@@ -1,8 +1,6 @@
-import React from "react";
-import { Composition, registerRoot } from "remotion";
-import { FakeJobShort, FAKE_JOB_FRAMES } from "./videos/fake-job/Bridge";
+// Entry point for the Remotion bundler (templates/scripts/bridge-stills.mjs defaults to src/index.ts).
+// This file must stay JSX-free: esbuild parses .ts without JSX support. All JSX lives in Root.tsx.
+import { registerRoot } from "remotion";
+import { Root } from "./Root";
 
-const Root: React.FC = () => <Composition id="FakeJobShort" component={FakeJobShort} durationInFrames={FAKE_JOB_FRAMES} fps={30} width={1080} height={1920} />;
 registerRoot(Root);
-
-export { Root };

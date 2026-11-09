@@ -19,7 +19,7 @@ const KENNEY = ["tree_oak", "tree_default", "tree_detailed", "tree_fat", "tree_c
 const fallbackAsset = (name: string): THREE.Object3D => {
   const root = new THREE.Group();
   const mat = (color: string, emissive = "#000000") => new THREE.MeshLambertMaterial({ color, emissive });
-  const addMesh = (geometry: THREE.BufferGeometry | THREE.Geometry, material: THREE.Material, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0) => {
+  const addMesh = (geometry: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0) => {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);

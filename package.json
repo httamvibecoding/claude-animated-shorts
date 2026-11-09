@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "remotion preview",
-    "render": "remotion render",
+    "dev": "remotion preview src/index.ts",
+    "render": "remotion render src/index.ts",
     "stills": "node templates/scripts/bridge-stills.mjs"
   },
   "dependencies": {
