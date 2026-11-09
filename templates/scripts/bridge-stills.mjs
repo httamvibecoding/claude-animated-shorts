@@ -1,4 +1,7 @@
-// usage: node scripts/bridge-stills.mjs <outPrefix> <frame,frame,...> [scale]  (bundles once, GPU via ANGLE, jpeg)
+// usage: node templates/scripts/bridge-stills.mjs <outPrefix> <frame,frame,...> [scale]  (bundles once, GPU via ANGLE, jpeg)
+// NOTE: the legacy "bridge" name refers to the shared toolkit in templates/scripts/ (developed with the bridge
+// template), NOT the video content. This script renders WHATEVER composition the entry registers — currently id
+// "FakeJobShort" (all content lives in src/videos/fake-job/).
 // BRIDGE_ENTRY=src/sandboxes/<name>/index.tsx renders a sandbox copy instead of the main project entry.
 import fs from "node:fs";
 // no publicDir is configured: the project needs no public/ folder (assets are inline/fallback, see world.ts loadKit)
