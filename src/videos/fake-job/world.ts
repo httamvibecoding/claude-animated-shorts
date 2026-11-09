@@ -2,8 +2,6 @@
 // backstays, anchors, bunting, flags) deformed every frame from the story physics, the park swing, smoke, clouds
 // and the cast. update(id, f, camera) poses everything for shot `id` at frame f (pure function of id + f).
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { staticFile } from "remotion";
 import { Batch, Strand, boxGeo, V, lam, buildTown, flagTex, Kit, Ray, kitClone } from "./build";
 import { beam, bed, rep, ctex, planksHD, beamHD, stoneHD, cobbleHD, grassHD, chainHD, waterNear, waterFar, cloudHD } from "./paint";
 import { Pen, fxSign } from "./toon";
