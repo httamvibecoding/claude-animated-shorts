@@ -152,13 +152,14 @@ type ScreenDraw = (g: CanvasRenderingContext2D, t: number, st: SceneState) => vo
 type Screen = { cv: HTMLCanvasElement; tex: THREE.CanvasTexture; mat: THREE.MeshBasicMaterial; mesh: THREE.Mesh; draw: ScreenDraw };
 const makeScreen = (w: number, h: number, draw: ScreenDraw): Screen => {
   const cv = document.createElement("canvas");
-  cv.width = 640; cv.height = 400;
+  cv.width = 1280; cv.height = 800; // 2x the 640x400 design space: crisp screens at 2K/4K output
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.15, 1.15, 1.15) });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
   mesh.layers.set(NOINK); // screens are painted faces: the ink pass never outlines them
-  return { cv, tex, mat, mesh, draw };
+  // draw functions keep their 640x400 coordinate space; the 2x transform renders them at 2x density
+  return { cv, tex, mat, mesh, draw: (g, t, st) => { g.setTransform(2, 0, 0, 2, 0, 0); draw(g, t, st); } };
 };
 
 const chrome = (g: CanvasRenderingContext2D, title: string) => {
@@ -567,7 +568,7 @@ export class World {
     for (const x of [5.9, 8.3, 10.7]) box(0.09, 0.72, 0.09, x, 0.36, -3.1, M.steel);
     const denMon = (x: number) => {
       box(1.12, 0.72, 0.07, x, 1.32, -3.62, M.black);
-      const cv = document.createElement("canvas"); cv.width = 640; cv.height = 400;
+      const cv = document.createElement("canvas"); cv.width = 1280; cv.height = 800; // 2x density like makeScreen
       const tex = new THREE.CanvasTexture(cv);
       tex.colorSpace = THREE.SRGBColorSpace;
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 0.62), new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.1, 1.15, 1.2) }));
@@ -687,6 +688,7 @@ export class World {
     }
     for (const d of this.denScreens) {
       const g = d.cv.getContext("2d")!;
+      g.setTransform(2, 0, 0, 2, 0, 0); // 2x density; drawDen keeps its 640x400 design space
       drawDen(g, t + (d.cv.width % 7) * 0.31);
       d.tex.needsUpdate = true;
     }

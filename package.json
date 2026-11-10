@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "remotion preview src/index.ts",
     "render": "remotion render src/index.ts",
-    "stills": "node templates/scripts/bridge-stills.mjs"
+    "render:1080": "remotion render src/index.ts FakeJobShort out/fake-job/fake-job-1080.mp4 --scale=1 --crf=16 --timeout=600000",
+    "render:2k": "remotion render src/index.ts FakeJobShort out/fake-job/fake-job-2k.mp4 --scale=1.3333 --crf=16 --timeout=600000",
+    "render:both": "npm run render:1080 && npm run render:2k",
+    "stills": "node templates/scripts/bridge-stills.mjs",
+    "stills:1080": "node templates/scripts/bridge-stills.mjs out/fake-job/1080- 100,400 1",
+    "stills:2k": "node templates/scripts/bridge-stills.mjs out/fake-job/2k- 100,400 1.3333",
+    "stills:both": "npm run stills:1080 && npm run stills:2k"
   },
   "dependencies": {
     "@react-three/drei": "^9.88.0",
