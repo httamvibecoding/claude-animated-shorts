@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+
+# render output
+out/
+
+# scratch / verification scripts (not part of the pipeline)
+check_stats*.js
+verify_metrics.js
+fetch_assets.sh
+
+# remotion / editor temp
+.remotion/
+*.log

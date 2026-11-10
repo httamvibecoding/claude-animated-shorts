@@ -29,5 +29,35 @@ Claude then follows `SKILL.md`: topic and facts, then script, then voice, then t
 - Set `REMOTION_TMP` to a folder on a big drive. Every Remotion bundle copies `public/` (~1.3 GB) into the temp folder.
 - Story, characters and voice should always be your own. Use the references for the look, not the content.
 
+## Chạy trên Windows (PowerShell) — 2 phiên bản 1080 + 2K
+
+Mặc định: mỗi lần render ra **cả 2 phiên bản 1080 (1080×1920) và 2K (1440×2560)**.
+
+```powershell
+cd C:\Users\matth\Downloads\claude-animated-shorts
+$env:REMOTION_RENDERER_TIMEOUT_MS="600000"; $env:REMOTION_BROWSER_TIMEOUT_MS="600000"
+
+# Stills xem trước cả 2 độ phân giải (frame 100, 400)
+npm run stills:both
+
+# Render video cả 2 phiên bản
+npm run render:both
+
+# Hoặc từng phiên bản riêng
+npm run stills:1080    # stills 1080p
+npm run stills:2k      # stills 2K (1440x2560)
+npm run render:1080    # video 1080p
+npm run render:2k      # video 2K (1440x2560)
+```
+
+Tham số `bridge-stills.mjs <outPrefix> <frame,frame,...> [scale]` — đổi frame/xem thêm độ phân giải khác (ví dụ `2` = 4K 2160×3840):
+
+```powershell
+node templates/scripts/bridge-stills.mjs out/fake-job/4k- 100,400 2
+npx remotion render src/index.ts FakeJobShort out/fake-job/fake-job-4k.mp4 --scale=2 --crf=16 --timeout=600000
+```
+
+Nét ink/DOF tự scale theo độ phân giải (`pxScale = height/1920`), màn hình monitor trong scene vẽ ở 2× density — không cần chỉnh gì thêm khi lên 2K/4K.
+
 ## License
 The code and docs are MIT (see `LICENSE`). The reference frames are included for style study only.
